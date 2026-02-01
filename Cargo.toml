@@ -1,0 +1,17 @@
+[package]
+name = "funny_password_generator"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "funny_password_generator"
+path = "src/lib.rs"
+
+[[bin]]
+name = "mkpass"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+rand = "0.8"
+colored = "2"
