@@ -1,7 +1,8 @@
 use clap::Parser;
 use colored::Colorize;
 use funny_password_generator::entropy::{
-    calculate_bruteforce_entropy, estimate_crack_time, estimate_entropy_from_words_with_nsfw,
+    calculate_bruteforce_entropy, calculate_formatting_entropy, estimate_crack_time,
+    estimate_entropy_from_words_with_nsfw,
 };
 use funny_password_generator::generator::{generate_password, generate_password_with_template, WordConfig};
 use funny_password_generator::templates::{render_commas, Template};
@@ -46,9 +47,9 @@ struct Args {
     #[arg(long)]
     list_templates: bool,
 
-    /// Include adult/NSFW words for extra humor (Cards Against Humanity style)
+    /// Use only safe-for-work words (NSFW is enabled by default)
     #[arg(long)]
-    nsfw: bool,
+    sfw: bool,
 }
 
 /// Capitalize the first letter of a word
@@ -283,8 +284,8 @@ fn main() {
         None
     };
 
-    // Create word config based on CLI flags
-    let word_config = WordConfig { nsfw: args.nsfw };
+    // Create word config based on CLI flags (NSFW is default, --sfw disables it)
+    let word_config = WordConfig { nsfw: !args.sfw };
 
     // Generate 10x more candidates and keep the most secure ones
     let candidates_count = args.count * 10;
@@ -296,8 +297,16 @@ fn main() {
             None => generate_password(args.min_words, &word_config),
         };
 
-        let pattern_entropy = estimate_entropy_from_words_with_nsfw(&words, args.nsfw);
+        // Count adjectives before formatting (for formatting entropy calculation)
+        let adjective_count = words.iter().filter(|w| is_adjective(w)).count();
+
+        let word_entropy = estimate_entropy_from_words_with_nsfw(&words, !args.sfw);
         let password = format_password(words, &args.separator, args.capitalize, args.no_spaces);
+
+        // Total pattern entropy = word selection + formatting choices
+        let formatting_entropy = calculate_formatting_entropy(&password, adjective_count);
+        let pattern_entropy = word_entropy + formatting_entropy;
+
         let bruteforce_entropy = calculate_bruteforce_entropy(&password);
 
         candidates.push((password, pattern_entropy, bruteforce_entropy));

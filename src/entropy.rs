@@ -284,6 +284,96 @@ pub fn estimate_bruteforce_crack_time(password: &str) -> String {
     estimate_crack_time(entropy)
 }
 
+/// Calculate entropy from formatting choices applied during password display.
+/// This accounts for random elements added in format_password():
+/// - Dramatic openers (25% chance, 30 options × 2 punctuation = 60 total)
+/// - Air quotes on adjectives (30% chance per adjective)
+/// - Smart punctuation (1-3 options depending on sentence type)
+/// - Article prefix for adjective-starting passwords (The/A/An)
+pub fn calculate_formatting_entropy(password: &str, adjective_count: usize) -> f64 {
+    let mut entropy = 0.0;
+
+    // Dramatic openers: 25% chance of appearing
+    // If present: 30 words × 2 punctuation = 60 options
+    // Entropy = P(opener) × log2(60) + P(no opener) × 0
+    // Using weighted average: 0.25 × log2(60) ≈ 1.47 bits average contribution
+    // But we detect if one is present to give accurate entropy
+    const OPENERS: &[&str] = &[
+        "Beware", "Listen", "Warning", "Attention", "Alert",
+        "Behold", "Alas", "Indeed", "Clearly", "Obviously",
+        "Seriously", "Honestly", "Tragically", "Surprisingly",
+        "Allegedly", "Reportedly", "Shockingly", "Naturally",
+        "Curiously", "Mysteriously", "Suspiciously", "Frankly",
+        "Incredibly", "Absurdly", "Hilariously", "Sadly",
+        "Fortunately", "Unfortunately", "Remarkably", "Notably",
+    ];
+
+    let has_opener = OPENERS.iter().any(|&opener| {
+        password.starts_with(opener) || password.starts_with(&opener.to_lowercase())
+    });
+
+    if has_opener {
+        // Opener present: log2(30 words × 2 punctuation) + log2(1/0.25) for the choice to add it
+        entropy += (30.0_f64 * 2.0).log2(); // ~5.9 bits for which opener
+        entropy += (1.0 / 0.25_f64).log2(); // ~2 bits for choosing to have opener
+    } else {
+        // No opener: log2(1/0.75) for the choice not to add it
+        entropy += (1.0 / 0.75_f64).log2(); // ~0.42 bits
+    }
+
+    // Air quotes: 30% chance per adjective
+    // Each adjective with quotes: log2(1/0.3) ≈ 1.74 bits
+    // Each adjective without quotes: log2(1/0.7) ≈ 0.51 bits
+    let quoted_adjectives = password.matches('"').count() / 2; // pairs of quotes
+    let unquoted_adjectives = adjective_count.saturating_sub(quoted_adjectives);
+
+    if quoted_adjectives > 0 {
+        entropy += quoted_adjectives as f64 * (1.0 / 0.3_f64).log2();
+    }
+    if unquoted_adjectives > 0 {
+        entropy += unquoted_adjectives as f64 * (1.0 / 0.7_f64).log2();
+    }
+
+    // Punctuation entropy (detecting which was used)
+    let ends_with_question = password.ends_with('?');
+    let ends_with_exclaim = password.ends_with('!');
+    let ends_with_ellipsis = password.ends_with("...");
+    let ends_with_period = password.ends_with('.') && !ends_with_ellipsis;
+
+    // Questions always get "?" - 0 bits (deterministic)
+    // Imperatives/warnings get "!" or "..." - 1 bit
+    // Statements get ".", "!", or "..." - ~1.58 bits
+    if ends_with_question {
+        // Deterministic, no entropy
+    } else if ends_with_exclaim || ends_with_ellipsis {
+        // Could be imperative (2 options) or statement (3 options)
+        // Conservative estimate: assume 2-3 options average
+        entropy += 1.0; // ~1 bit
+    } else if ends_with_period {
+        // Statement with period (1 of 3 options)
+        entropy += (3.0_f64).log2(); // ~1.58 bits
+    }
+
+    // Article prefix for adjective-starting passwords
+    // The (70%), A (15%), An (15%) - but only when first word is adjective
+    // Entropy ≈ -0.7×log2(0.7) - 0.15×log2(0.15) - 0.15×log2(0.15) ≈ 1.18 bits
+    // We detect this by checking if password starts with "The ", "A ", or "An "
+    if password.starts_with("The ") || password.starts_with("A ") || password.starts_with("An ") {
+        // Check if this was an added article (not part of original template)
+        // by seeing if second word looks like an adjective
+        let words: Vec<&str> = password.split_whitespace().collect();
+        if words.len() > 1 {
+            let second_word = words[1].trim_matches('"').to_lowercase();
+            if get_adjectives(false).contains(&second_word.as_str()) {
+                // Article was likely added - account for The(70%)/A/An(30%) choice
+                entropy += 1.2; // approximate weighted entropy
+            }
+        }
+    }
+
+    entropy
+}
+
 fn format_duration(seconds: f64) -> String {
     const SECONDS_PER_YEAR: f64 = 31536000.0;
     const UNIVERSE_AGE_YEARS: f64 = 13.8e9; // ~13.8 billion years

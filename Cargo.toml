@@ -9,7 +9,11 @@ path = "src/lib.rs"
 
 [[bin]]
 name = "mkpass"
-path = "src/main.rs"
+path = "src/bin/mkpass.rs"
+
+[[bin]]
+name = "mkname"
+path = "src/bin/mkname.rs"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
